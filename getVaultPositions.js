@@ -1,9 +1,10 @@
 const { ethers } = require('ethers');
 const vaultABI = require('./vaultABI.json');
+require('dotenv').config();
 
 async function getVaultPositions(blockNumber, vaultAddress, rpcUrl) {
     // Connect to the network
-    const provider = new ethers.providers.JsonRpcProvider("https://eth-mainnet.g.alchemy.com/v2/b9zE4YWtunTLyBOyzdXSOPzT4hl7obny");
+    const provider = new ethers.providers.JsonRpcProvider(rpcUrl);
     
     // Get contract code to verify it exists
     const code = await provider.getCode(vaultAddress);
@@ -79,11 +80,17 @@ async function getVaultPositions(blockNumber, vaultAddress, rpcUrl) {
 
         console.log('Found', addresses.size, 'unique addresses');
 
+        // Get pricePerShare at the specified block
+        const pricePerShare = await vault.pricePerShare({ blockTag: blockNumber });
+        console.log('Price per share:', pricePerShare.toString());
+
         // Get balances
         const balancePromises = Array.from(addresses).map(async address => {
             try {
                 const balance = await vault.balanceOf(address, { blockTag: blockNumber });
-                return { address, balance };
+                // Calculate underlying token amount
+                const underlyingBalance = balance.mul(pricePerShare).div(ethers.BigNumber.from(10).pow(18));
+                return { address, balance: underlyingBalance };
             } catch (e) {
                 console.log('Failed to get balance for', address, ':', e.message);
                 return { address, balance: ethers.BigNumber.from(0) };
@@ -92,12 +99,23 @@ async function getVaultPositions(blockNumber, vaultAddress, rpcUrl) {
 
         const balances = await Promise.all(balancePromises);
 
-        // Log non-zero balances
-        const nonZeroBalances = balances.filter(b => !b.balance.isZero());
+        // Filter and format non-zero balances
+        const nonZeroBalances = balances
+            .filter(b => !b.balance.isZero())
+            .map(b => ({
+                id: b.address.toLowerCase(),
+                balance: b.balance.toString()
+            }));
+
         console.log('Addresses with non-zero balances:', nonZeroBalances.length);
-        nonZeroBalances.forEach(b => {
-            console.log('Address:', b.address, 'Balance:', b.balance.toString());
-        });
+        
+        // Save to output.json
+        const fs = require('fs');
+        fs.writeFileSync(
+            'output.json', 
+            JSON.stringify(nonZeroBalances, null, 2)
+        );
+        console.log('Results saved to output.json');
 
         return nonZeroBalances;
 
@@ -110,13 +128,23 @@ async function getVaultPositions(blockNumber, vaultAddress, rpcUrl) {
 // Example usage
 async function main() {
     const BLOCK_NUMBER = process.env.BLOCK_NUMBER || 'latest';
-    const VAULT_ADDRESS = "0xDDa02A2FA0bb0ee45Ba9179a3fd7e65E5D3B2C90";
+    const VAULT_ADDRESS = process.env.VAULT_ADDRESS;
+    const RPC_URL = process.env.RPC_URL;
+
+    if (!VAULT_ADDRESS) {
+        throw new Error('VAULT_ADDRESS not set in .env file');
+    }
+
+    if (!RPC_URL) {
+        throw new Error('RPC_URL not set in .env file');
+    }
 
     try {
         console.log('Checking vault at address:', VAULT_ADDRESS);
         console.log('Block number:', BLOCK_NUMBER);
+        console.log('Using RPC URL:', RPC_URL);
         
-        const positions = await getVaultPositions(BLOCK_NUMBER, VAULT_ADDRESS);
+        const positions = await getVaultPositions(BLOCK_NUMBER, VAULT_ADDRESS, RPC_URL);
 
     } catch (error) {
         console.error('Main Error:', error);
