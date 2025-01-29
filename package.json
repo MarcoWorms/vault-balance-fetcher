@@ -1,0 +1,15 @@
+{
+  "name": "kelp",
+  "version": "1.0.0",
+  "description": "",
+  "main": "getVaultPositions.js",
+  "scripts": {
+    "start": "node getVaultPositions.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "ethers": "^5.7.2"
+  }
+}
